@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 
+const yargs = require('yargs')
 const cheerio = require('cheerio')
 const request = require('request-promise-native')
 
@@ -18,12 +19,22 @@ const jar = request.jar()
 
 // regexes
 const PT_NON_ALPHA_NUM = /[^\w\d]+/g
+const PT_SERIES_URL = /^https?:\/\/www.chia-anime.me\/episode\/(?:[^\/]+)\/$/
+const PT_EPISODE_URL = /^https?:\/\/www.chia-anime.me\/(?:[^\/]+)\/$/
 const PT_INLINE_FUNC_EXEC = /\(\s*function\s*\(.*?\)\s*\{.*?\}\s*\(.*?\)\);?/s
 const PT_SCRIPT2_EVAL_URL = /href="(.*?)"/
 const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
 
 
 // utility methods
+function isSeriesURL (url) {
+  return PT_SERIES_URL.test(url)
+}
+
+function isEpisodeURL (url) {
+  return PT_EPISODE_URL.test(url)
+}
+
 function normalizeFileName (fileName) {
   return fileName.replace(PT_NON_ALPHA_NUM, '-')
 }
@@ -95,13 +106,8 @@ async function downloadVideo (url, destFilePath, videoID) {
 
 
 // wrapper methods
-async function downloadSeries (seriesName, seriesURL, destDir) {
-  if (!destDir) {
-    destDir = normalizeFileName(seriesName)
-  }
-  fs.mkdirSync(destDir, { recursive: true })
-
-  console.info(`Series: ${seriesName}`)
+async function downloadSeries (seriesURL, destDir) {
+  console.info(`Series URL: ${seriesURL}`)
   console.info(`Destination Dir: ${destDir}`)
 
   let episodes = await getEpisodes(seriesURL)
@@ -125,9 +131,47 @@ async function downloadEpisode (episodeURL, destFilePath) {
 
 
 // main
+// parse args
+const args = yargs
+  .scriptName('chime-anime-dl')
+  .options('d', {
+    alias: 'dir',
+    demandOption: true,
+    describe: 'Destination download directory',
+    type: 'string'
+  })
+  .options('s', {
+    alias: 'series',
+    describe: 'Any chime-anime.com series URL, listing all episodes' +
+      ' ex. http://www.chia-anime.me/episode/hunter-x-hunter-2011/',
+    type: 'string'
+  })
+  .options('e', {
+    alias: 'episode',
+    describe: 'Any chime-anime.com episode URL' +
+      ' ex. http://www.chia-anime.me/hunter-x-hunter-episode-1-english-subbed/',
+    type: 'string'
+  })
+  .argv
+
+// validate args
+let err
+if (!args.series && !args.episode) {
+  err = 'Either `series` or `episode` arg is required'
+} else if (args.series && !isSeriesURL(args.series)) {
+  err = `Invalid Series URL - ${args.series}`
+} else if (args.episode && !isEpisodeURL(args.episode)) {
+  err = `Invalid Episode URL - ${args.episode}`
+}
+if (err) {
+  console.error(`[ERROR] ${err}`)
+  process.exit(1)
+}
+
+// create dest dir if it doesnt exist
+fs.mkdirSync(args.dir, { recursive: true });
+
 (async () => {
-  await downloadSeries(
-    'Hunter x Hunter',
-    'http://www.chia-anime.me/episode/hunter-x-hunter-2011/'
-  )
+  // download
+  await downloadSeries(args.series || args.episode, args.dir)
 })()
