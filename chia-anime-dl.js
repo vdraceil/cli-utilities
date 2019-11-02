@@ -92,8 +92,10 @@ async function getDownloadableVideoURL (videoID) {
 }
 
 async function downloadVideo (url, destFilePath, videoID) {
-  if (fs.fileExistsSync(destFilePath)) {
-    // skip
+  if (fs.existsSync(destFilePath)) {
+    // skip download
+    console.info(`\tfile: "${destFilePath}" already exists. download skipped`)
+    console.info('\ttip: delete the file to force download this episode/video')
     return
   }
 
@@ -109,14 +111,14 @@ async function downloadVideo (url, destFilePath, videoID) {
       .on('finish', resolve)
       .on('error', async err => {
         if (err.code === 'ECONNRESET' && --retries > 0) {
-          console.error(`\t\t-- err: ${err.code} -- ${retries} retries left --`)
+          console.error(`\t-- err: ${err.code} -- ${retries} retries left --`)
           try {
             await downloadVideo(url, destFilePath, videoID)
-          } catch (err1) {
+          } catch (err) {
             reject(err)
           }
         } else {
-          console.error(`\t\t[ERROR] ${err.syscall} ${err.code}`)
+          console.error(`\terr: ${err.syscall} ${err.code}`)
           reject(err)
         }
       })
@@ -138,7 +140,7 @@ async function downloadSeries (seriesURL, destDir) {
     let fileName = `${normalizeFileName(episode.name)}.mp4`
     let destFilePath = path.join(destDir, fileName)
 
-    console.info(`\t${episode.name}`)
+    console.info(episode.name)
     await downloadEpisode(episode.url, destFilePath)
   }
 }
@@ -148,11 +150,12 @@ async function downloadEpisode (episodeURL, destFilePath) {
   let videoURL = await getDownloadableVideoURL(videoID)
 
   try {
-    console.time('\t\tDownload Success')
+    console.time('\tTime Taken')
     await downloadVideo(videoURL, destFilePath, videoID)
-    console.timeEnd('\t\tDownload Success')
+    console.timeEnd('\tTime Taken')
   } catch (err) {
-    console.error(`\t\tDownload Failure - ${err}`)
+    console.error(`\terr: ${err}`)
+    console.timeEnd('\tTime Taken')
   }
 }
 
