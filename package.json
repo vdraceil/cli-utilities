@@ -1,0 +1,23 @@
+{
+  "name": "cli-utilities",
+  "version": "1.0.0",
+  "description": "Utilities to automate day to day stuff",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vdraceil/cli-utilities.git"
+  },
+  "author": "Vinoth Kumar Kannan",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vdraceil/cli-utilities/issues"
+  },
+  "homepage": "https://github.com/vdraceil/cli-utilities#readme",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.3",
+    "request": "^2.88.0",
+    "request-promise-native": "^1.0.7"
+  }
+}
