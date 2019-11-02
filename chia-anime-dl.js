@@ -10,12 +10,10 @@ const request = require('request-promise-native')
 const PA_JS = 'http://www1.chia-anime.com/pa.js'
 const ANIMEAPP_URL = 'http://download.animeapp.net/video/<VIDEO_ID>'
 
+const MAX_RETRIES = 5
 const COMMON_HTTP_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.92 Safari/537.36'
 };
-
-// state track
-const jar = request.jar()
 
 // regexes
 const PT_NON_ALPHA_NUM = /[^\w\d]+/g
@@ -24,6 +22,10 @@ const PT_EPISODE_URL = /^https?:\/\/www.chia-anime.me\/(?:[^\/]+)\/$/
 const PT_INLINE_FUNC_EXEC = /\(\s*function\s*\(.*?\)\s*\{.*?\}\s*\(.*?\)\);?/s
 const PT_SCRIPT2_EVAL_URL = /href="(.*?)"/
 const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
+
+// global state tracking constants & variables
+const jar = request.jar()
+var retries = MAX_RETRIES
 
 
 // utility methods
@@ -90,17 +92,35 @@ async function getDownloadableVideoURL (videoID) {
 }
 
 async function downloadVideo (url, destFilePath, videoID) {
+  if (fs.fileExistsSync(destFilePath)) {
+    // skip
+    return
+  }
+
   let request = require('request')
 
   let headers = COMMON_HTTP_HEADERS
   headers['Referer'] = ANIMEAPP_URL.replace('<VIDEO_ID>', videoID)
+  headers['Connection'] = 'keep-alive'
 
   return new Promise((resolve, reject) => {
     request
       .get({ url, headers, jar })
-      .pipe(fs.createWriteStream(destFilePath))
       .on('finish', resolve)
-      .on('error', reject)
+      .on('error', async err => {
+        if (err.code === 'ECONNRESET' && --retries > 0) {
+          console.error(`\t\t-- err: ${err.code} -- ${retries} retries left --`)
+          try {
+            await downloadVideo(url, destFilePath, videoID)
+          } catch (err1) {
+            reject(err)
+          }
+        } else {
+          console.error(`\t\t[ERROR] ${err.syscall} ${err.code}`)
+          reject(err)
+        }
+      })
+      .pipe(fs.createWriteStream(destFilePath))
   })
 }
 
@@ -126,7 +146,14 @@ async function downloadSeries (seriesURL, destDir) {
 async function downloadEpisode (episodeURL, destFilePath) {
   let videoID = await getVideoID(episodeURL)
   let videoURL = await getDownloadableVideoURL(videoID)
-  await downloadVideo(videoURL, destFilePath, videoID)
+
+  try {
+    console.time('\t\tDownload Success')
+    await downloadVideo(videoURL, destFilePath, videoID)
+    console.timeEnd('\t\tDownload Success')
+  } catch (err) {
+    console.error(`\t\tDownload Failure - ${err}`)
+  }
 }
 
 
@@ -168,7 +195,7 @@ if (err) {
   process.exit(1)
 }
 
-// create dest dir if it doesnt exist
+// create destination dir if it doesnt exist
 fs.mkdirSync(args.dir, { recursive: true });
 
 (async () => {
