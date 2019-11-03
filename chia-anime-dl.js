@@ -21,6 +21,7 @@ const PT_SERIES_URL = /^https?:\/\/www.chia-anime.me\/episode\/(?:[^\/]+)\/$/
 const PT_EPISODE_URL = /^https?:\/\/www.chia-anime.me\/(?:[^\/]+)\/$/
 const PT_INLINE_FUNC_EXEC = /\(\s*function\s*\(.*?\)\s*\{.*?\}\s*\(.*?\)\);?/s
 const PT_SCRIPT2_EVAL_URL = /href="(.*?)"/
+const PT_SCRIPT5_EVAL_URL = /src="(.*?)"/
 const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
 
 // global state tracking constants & variables
@@ -82,17 +83,35 @@ async function getDownloadableVideoURL (videoID) {
   script1 = script1.replace(PT_INLINE_FUNC_EXEC, '').trim()
   eval(script1)
 
-  // extract & evaluate script2 in the current context
-  let script2 = $('body script').eq(1).html().trim()
-  script2 = script2.replace(/^eval/, "var script2EvalResult = ")
-  eval(script2)
+  // LOW QUALITY VIDEO
+  // // extract & evaluate script2 in the current context
+  // let script2 = $('body script').eq(1).html().trim()
+  // script2 = script2.replace(/^eval/, "var script2EvalResult = ")
+  // eval(script2)
+  // eval(`var finalURL = '${PT_SCRIPT2_EVAL_URL.exec(script2EvalResult)[1]}'`)
 
-  eval(`var finalURL = '${PT_SCRIPT2_EVAL_URL.exec(script2EvalResult)[1]}'`)
+  // HIGH QUALITY VIDEO
+  // extract & evaluate script5 in the current context
+  let script5 = $('body script').eq(4).html().trim()
+  script5 = script5.replace(/^eval/, "var script5EvalResult = ")
+  eval(script5)
+  let script5EvalResultVariables = script5EvalResult
+    .slice(0, script5EvalResult.indexOf('function'))
+  eval(script5EvalResultVariables)
+  eval(`var videoURL = '${PT_SCRIPT5_EVAL_URL.exec(script5EvalResult)[1]}'`)
+
+  // load the video page and extract the source video URL
+  response = await request.get({
+    url: videoURL, jar, headers: COMMON_HTTP_HEADERS
+  })
+  $ = cheerio.load(response)
+  let finalURL = $('source').attr('src')
+
   return finalURL
 }
 
-async function downloadVideo (url, destFilePath, videoID) {
-  if (fs.existsSync(destFilePath)) {
+async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
+  if (!isRetry && fs.existsSync(destFilePath)) {
     // skip download
     console.info(`\tfile: "${destFilePath}" already exists. download skipped`)
     console.info('\ttip: delete the file to force download this episode/video')
@@ -113,7 +132,7 @@ async function downloadVideo (url, destFilePath, videoID) {
         if (err.code === 'ECONNRESET' && --retries > 0) {
           console.error(`\t-- err: ${err.code} -- ${retries} retries left --`)
           try {
-            await downloadVideo(url, destFilePath, videoID)
+            await downloadVideo(url, destFilePath, videoID, true)
           } catch (err) {
             reject(err)
           }
@@ -150,12 +169,12 @@ async function downloadEpisode (episodeURL, destFilePath) {
   let videoURL = await getDownloadableVideoURL(videoID)
 
   try {
-    console.time('\tTime Taken')
+    console.time('\ttime taken')
     await downloadVideo(videoURL, destFilePath, videoID)
-    console.timeEnd('\tTime Taken')
+    console.timeEnd('\ttime taken')
   } catch (err) {
     console.error(`\terr: ${err}`)
-    console.timeEnd('\tTime Taken')
+    console.timeEnd('\ttime taken')
   }
 }
 
@@ -203,5 +222,9 @@ fs.mkdirSync(args.dir, { recursive: true });
 
 (async () => {
   // download
-  await downloadSeries(args.series || args.episode, args.dir)
+  try {
+    await downloadSeries(args.series || args.episode, args.dir)
+  } catch (err) {
+    console.error(`[ERROR] ${err}`)
+  }
 })()
