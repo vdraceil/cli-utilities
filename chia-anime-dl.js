@@ -161,9 +161,7 @@ async function downloadSeries (seriesURL, destDir, highQuality=false) {
   console.info(`Total episodes found: ${episodes.length}`)
   console.info('\nDownloading ...')
 
-  let i = 0
   for (let episode of episodes) {
-    if (++i<7) continue
     let fileName = `${normalizeFileName(episode.name)}.mp4`
     let destFilePath = path.join(destDir, fileName)
 
