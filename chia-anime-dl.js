@@ -10,6 +10,7 @@ const request = require('request-promise-native')
 const PA_JS = 'http://www1.chia-anime.com/pa.js'
 const ANIMEAPP_URL = 'http://download.animeapp.net/video/<VIDEO_ID>'
 
+const MIN_FILE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
 const MAX_RETRIES = 5
 const COMMON_HTTP_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.92 Safari/537.36'
@@ -42,6 +43,14 @@ function normalizeFileName (fileName) {
   return fileName.replace(PT_NON_ALPHA_NUM, '-')
 }
 
+function isDownloaded (filePath) {
+  if (fs.existsSync(filePath)) {
+    let downloadedFileSizeInBytes = fs.statSync(filePath)['size']
+    return downloadedFileSizeInBytes > MIN_FILE_SIZE_BYTES
+  }
+  return false
+}
+
 async function getEpisodes (seriesURL) {
   let response = await request.get({
     url: seriesURL, jar, headers: COMMON_HTTP_HEADERS
@@ -64,7 +73,7 @@ async function getVideoID (episodeURL) {
   return PT_ANIMEPRIME_URL_VIDEO_ID.exec(response)[1]
 }
 
-async function getDownloadableVideoURL (videoID) {
+async function getDownloadableVideoURL (videoID, highQuality) {
   // make up the context
   let response = await request.get({
     url: PA_JS, jar, headers: COMMON_HTTP_HEADERS
@@ -83,35 +92,35 @@ async function getDownloadableVideoURL (videoID) {
   script1 = script1.replace(PT_INLINE_FUNC_EXEC, '').trim()
   eval(script1)
 
-  // LOW QUALITY VIDEO
-  // // extract & evaluate script2 in the current context
-  // let script2 = $('body script').eq(1).html().trim()
-  // script2 = script2.replace(/^eval/, "var script2EvalResult = ")
-  // eval(script2)
-  // eval(`var finalURL = '${PT_SCRIPT2_EVAL_URL.exec(script2EvalResult)[1]}'`)
+  if (highQuality) {
+    // extract & evaluate script5 in the current context
+    let script5 = $('body script').eq(4).html().trim()
+    script5 = script5.replace(/^eval/, "var script5EvalResult = ")
+    eval(script5)
+    let script5EvalResultVariables = script5EvalResult
+      .slice(0, script5EvalResult.indexOf('function'))
+    eval(script5EvalResultVariables)
+    eval(`var videoURL = '${PT_SCRIPT5_EVAL_URL.exec(script5EvalResult)[1]}'`)
 
-  // HIGH QUALITY VIDEO
-  // extract & evaluate script5 in the current context
-  let script5 = $('body script').eq(4).html().trim()
-  script5 = script5.replace(/^eval/, "var script5EvalResult = ")
-  eval(script5)
-  let script5EvalResultVariables = script5EvalResult
-    .slice(0, script5EvalResult.indexOf('function'))
-  eval(script5EvalResultVariables)
-  eval(`var videoURL = '${PT_SCRIPT5_EVAL_URL.exec(script5EvalResult)[1]}'`)
-
-  // load the video page and extract the source video URL
-  response = await request.get({
-    url: videoURL, jar, headers: COMMON_HTTP_HEADERS
-  })
-  $ = cheerio.load(response)
-  let finalURL = $('source').attr('src')
+    // load the video page and extract the source video URL
+    response = await request.get({
+      url: videoURL, jar, headers: COMMON_HTTP_HEADERS
+    })
+    $ = cheerio.load(response)
+    var finalURL = $('source').attr('src')
+  } else {
+    // extract & evaluate script2 in the current context
+    let script2 = $('body script').eq(1).html().trim()
+    script2 = script2.replace(/^eval/, "var script2EvalResult = ")
+    eval(script2)
+    eval(`var finalURL = '${PT_SCRIPT2_EVAL_URL.exec(script2EvalResult)[1]}'`)
+  }
 
   return finalURL
 }
 
 async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
-  if (!isRetry && fs.existsSync(destFilePath)) {
+  if (!isRetry && isDownloaded(destFilePath)) {
     // skip download
     console.info(`\tfile: "${destFilePath}" already exists. download skipped`)
     console.info('\ttip: delete the file to force download this episode/video')
@@ -127,7 +136,7 @@ async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
   return new Promise((resolve, reject) => {
     request
       .get({ url, headers, jar })
-      .on('finish', resolve)
+      .on('end', resolve)
       .on('error', async err => {
         if (err.code === 'ECONNRESET' && --retries > 0) {
           console.error(`\t-- err: ${err.code} -- ${retries} retries left --`)
@@ -147,26 +156,25 @@ async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
 
 
 // wrapper methods
-async function downloadSeries (seriesURL, destDir) {
-  console.info(`Series URL: ${seriesURL}`)
-  console.info(`Destination Dir: ${destDir}`)
-
+async function downloadSeries (seriesURL, destDir, highQuality=false) {
   let episodes = await getEpisodes(seriesURL)
   console.info(`Total episodes found: ${episodes.length}`)
   console.info('\nDownloading ...')
 
+  let i = 0
   for (let episode of episodes) {
+    if (++i<7) continue
     let fileName = `${normalizeFileName(episode.name)}.mp4`
     let destFilePath = path.join(destDir, fileName)
 
     console.info(episode.name)
-    await downloadEpisode(episode.url, destFilePath)
+    await downloadEpisode(episode.url, destFilePath, highQuality)
   }
 }
 
-async function downloadEpisode (episodeURL, destFilePath) {
+async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
   let videoID = await getVideoID(episodeURL)
-  let videoURL = await getDownloadableVideoURL(videoID)
+  let videoURL = await getDownloadableVideoURL(videoID, highQuality)
 
   try {
     console.time('\ttime taken')
@@ -175,6 +183,17 @@ async function downloadEpisode (episodeURL, destFilePath) {
   } catch (err) {
     console.error(`\terr: ${err}`)
     console.timeEnd('\ttime taken')
+  }
+
+  // check the size of the file downloaded
+  // if it is too small, then the file hasn't been downloaded properly
+  // try downloading with the other available quality
+  if (!isDownloaded(destFilePath)) {
+    console.info('\tinfo: the download doesnt seem to ' +
+      'have completed successfully...')
+    console.info('\ttrying again with ' +
+      `a ${ highQuality ? 'low' : 'high' } quality`)
+    return downloadEpisode(episodeURL, destFilePath, !highQuality)
   }
 }
 
@@ -201,6 +220,13 @@ const args = yargs
       ' ex. http://www.chia-anime.me/hunter-x-hunter-episode-1-english-subbed/',
     type: 'string'
   })
+  .options('q', {
+    alias: 'quality',
+    describe: 'Quality of the anime (high/low)',
+    type: 'string',
+    choices: [ 'high', 'low' ],
+    default: 'low'
+  })
   .argv
 
 // validate args
@@ -218,12 +244,21 @@ if (err) {
 }
 
 // create destination dir if it doesnt exist
-fs.mkdirSync(args.dir, { recursive: true });
+fs.mkdirSync(args.dir, { recursive: true })
+
+console.info(`${args.series ? 'Series' : 'Episode'} URL: ` +
+  args.series || args.episode)
+console.info(`Destination Dir: ${args.dir}`)
+console.info(`Preferred Quality: ${args.quality}`);
 
 (async () => {
   // download
   try {
-    await downloadSeries(args.series || args.episode, args.dir)
+    await downloadSeries(
+      args.series || args.episode,
+      args.dir,
+      args.quality === 'high'
+    )
   } catch (err) {
     console.error(`[ERROR] ${err}`)
   }
