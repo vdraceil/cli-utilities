@@ -24,6 +24,7 @@ const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
 
 // settings
 const MAX_RETRIES = 5
+const OVERWRITE_FILES = false
 const REQUEST_TIMEOUT = 1 * 60 * 1000 // 5min
 const MIN_FILE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
 
@@ -153,6 +154,11 @@ async function downloadSeries (seriesURL, destDir, highQuality=false) {
 }
 
 async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
+  if (isDownloaded(destFilePath) && !OVERWRITE_FILES) {
+    console.info('Already downloaded')
+    return
+  }
+
   let quality = highQuality ? 'high' : 'low'
   console.info(`Attempting to download "${quality}" quality video`)
 
