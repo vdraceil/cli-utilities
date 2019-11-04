@@ -9,9 +9,6 @@ const request = require('request-promise-native')
 // constants
 const PA_JS = 'http://www1.chia-anime.com/pa.js'
 const ANIMEAPP_URL = 'http://download.animeapp.net/video/<VIDEO_ID>'
-
-const MIN_FILE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
-const MAX_RETRIES = 5
 const COMMON_HTTP_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.92 Safari/537.36'
 };
@@ -25,9 +22,12 @@ const PT_SCRIPT2_EVAL_URL = /href="(.*?)"/
 const PT_SCRIPT5_EVAL_URL = /src="(.*?)"/
 const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
 
+// settings
+const MAX_RETRIES = 5
+const MIN_FILE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
+
 // global state tracking constants & variables
 const jar = request.jar()
-var retries = MAX_RETRIES
 
 
 // utility methods
@@ -119,14 +119,7 @@ async function getDownloadableVideoURL (videoID, highQuality) {
   return finalURL
 }
 
-async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
-  if (!isRetry && isDownloaded(destFilePath)) {
-    // skip download
-    console.info(`\tfile: "${destFilePath}" already exists. download skipped`)
-    console.info('\ttip: delete the file to force download this episode/video')
-    return
-  }
-
+async function downloadVideo (url, destFilePath, videoID) {
   let request = require('request')
 
   let headers = COMMON_HTTP_HEADERS
@@ -136,24 +129,8 @@ async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
   return new Promise((resolve, reject) => {
     request
       .get({ url, headers, jar })
-      .on('end', () => {
-        // reset retries var and then wrap up
-        retries = MAX_RETRIES
-        resolve()
-      })
-      .on('error', async err => {
-        if (err.code === 'ECONNRESET' && --retries > 0) {
-          console.error(`\t-- err: ${err.code} -- ${retries} retries left --`)
-          try {
-            await downloadVideo(url, destFilePath, videoID, true)
-          } catch (err) {
-            reject(err)
-          }
-        } else {
-          console.error(`\terr: ${err.syscall} ${err.code}`)
-          reject(err)
-        }
-      })
+      .on('end', resolve)
+      .on('error', reject)
       .pipe(fs.createWriteStream(destFilePath))
   })
 }
@@ -163,38 +140,47 @@ async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
 async function downloadSeries (seriesURL, destDir, highQuality=false) {
   let episodes = await getEpisodes(seriesURL)
   console.info(`Total episodes found: ${episodes.length}`)
-  console.info('\nDownloading ...')
+  console.info('\nDownloading Episodes ...')
 
   for (let episode of episodes) {
     let fileName = `${normalizeFileName(episode.name)}.mp4`
     let destFilePath = path.join(destDir, fileName)
 
-    console.info(episode.name)
+    console.info(`\n-- ${episode.name} --\n`)
     await downloadEpisode(episode.url, destFilePath, highQuality)
   }
 }
 
 async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
+  let quality = highQuality ? 'high' : 'low'
+  console.info(`Attempting to download "${quality}" quality video`)
+
   let videoID = await getVideoID(episodeURL)
   let videoURL = await getDownloadableVideoURL(videoID, highQuality)
 
-  try {
-    console.time('\ttime taken')
-    await downloadVideo(videoURL, destFilePath, videoID)
-    console.timeEnd('\ttime taken')
-  } catch (err) {
-    console.error(`\terr: ${err}`)
-    console.timeEnd('\ttime taken')
-  }
+  let retry = 0
+  console.time('Time taken')
+  while (++retry <= MAX_RETRIES) {
+    try {
+      await downloadVideo(videoURL, destFilePath, videoID)
 
-  // check the size of the file downloaded
-  // if it is too small, then the file hasn't been downloaded properly
-  // try downloading with the other available quality
-  if (!isDownloaded(destFilePath)) {
-    console.info('\tinfo: the download doesnt seem to ' +
-      'have completed successfully...')
-    console.info('\ttrying again with ' +
-      `a ${ highQuality ? 'low' : 'high' } quality`)
+      if (isDownloaded(destFilePath)) {
+        // if the downloaded file meets the file size standards, we're done
+        console.info('Download success')
+        break
+      } else {
+        console.info('Download partial / corrupted')
+      }
+    } catch (err) {
+      console.info(`Error: ${err.code} - retry #${retry}`)
+    }
+  }
+  console.timeEnd('Time taken')
+
+  if (!isDownloaded(destFilePath) && args.quality === quality) {
+    console.error('Download failed\n')
+
+    // try downloading with the other available quality
     return downloadEpisode(episodeURL, destFilePath, !highQuality)
   }
 }
@@ -263,5 +249,6 @@ console.info(`Preferred Quality: ${args.quality}`);
     )
   } catch (err) {
     console.error(`[ERROR] ${err}`)
+    process.exit(1)
   }
 })()
