@@ -176,7 +176,7 @@ async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
         console.info('Download success')
         break
       } else {
-        console.info('Download partial or corrupted')
+        console.info(`Download partial or corrupted ; (#${retry}) Retrying`)
       }
     } catch (err) {
       console.info(`Error: ${err.code} ; (#${retry}) Retrying`)
