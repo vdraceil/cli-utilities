@@ -136,7 +136,11 @@ async function downloadVideo (url, destFilePath, videoID, isRetry=false) {
   return new Promise((resolve, reject) => {
     request
       .get({ url, headers, jar })
-      .on('end', resolve)
+      .on('end', () => {
+        // reset retries var and then wrap up
+        retries = MAX_RETRIES
+        resolve()
+      })
       .on('error', async err => {
         if (err.code === 'ECONNRESET' && --retries > 0) {
           console.error(`\t-- err: ${err.code} -- ${retries} retries left --`)
