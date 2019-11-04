@@ -24,6 +24,7 @@ const PT_ANIMEPRIME_URL_VIDEO_ID = /animepremium.\w{2,4}\/video\/([\w\d\-]+)/
 
 // settings
 const MAX_RETRIES = 5
+const REQUEST_TIMEOUT = 1 * 60 * 1000 // 5min
 const MIN_FILE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
 
 // global state tracking constants & variables
@@ -128,7 +129,7 @@ async function downloadVideo (url, destFilePath, videoID) {
 
   return new Promise((resolve, reject) => {
     request
-      .get({ url, headers, jar })
+      .get({ url, headers, jar, timeout: REQUEST_TIMEOUT })
       .on('end', resolve)
       .on('error', reject)
       .pipe(fs.createWriteStream(destFilePath))
@@ -169,10 +170,10 @@ async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
         console.info('Download success')
         break
       } else {
-        console.info('Download partial / corrupted')
+        console.info('Download partial or corrupted')
       }
     } catch (err) {
-      console.info(`Error: ${err.code} - retry #${retry}`)
+      console.info(`Error: ${err.code} ; (#${retry}) Retrying`)
     }
   }
   console.timeEnd('Time taken')
