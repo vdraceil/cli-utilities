@@ -7,11 +7,11 @@ const request = require('request-promise-native')
 
 
 // constants
-const PA_JS = 'http://www1.chia-anime.com/pa.js'
+const PA_JS = 'http://www.chia-anime.me/pa.js'
 const ANIMEAPP_URL = 'http://download.animeapp.net/video/<VIDEO_ID>'
 const COMMON_HTTP_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.92 Safari/537.36'
-};
+}
 
 // regexes
 const PT_NON_ALPHA_NUM = /[^\w\d]+/g
@@ -90,13 +90,13 @@ async function getDownloadableVideoURL (videoID, highQuality) {
   let $ = cheerio.load(response)
 
   // extract & evaluate script1 in the current context
-  let script1 = $('body script').eq(0).html().trim()
+  let script1 = $('body script').first().html().trim()
   script1 = script1.replace(PT_INLINE_FUNC_EXEC, '').trim()
   eval(script1)
 
   if (highQuality) {
     // extract & evaluate script5 in the current context
-    let script5 = $('body script').eq(4).html().trim()
+    let script5 = $('body script').last().html().trim()
     script5 = script5.replace(/^eval/, "var script5EvalResult = ")
     eval(script5)
     let script5EvalResultVariables = script5EvalResult
@@ -196,7 +196,7 @@ async function downloadEpisode (episodeURL, destFilePath, highQuality=false) {
 // main
 // parse args
 const args = yargs
-  .scriptName('chime-anime-dl')
+  .scriptName('chia-anime-dl')
   .options('d', {
     alias: 'dir',
     demandOption: true,
@@ -205,13 +205,13 @@ const args = yargs
   })
   .options('s', {
     alias: 'series',
-    describe: 'Any chime-anime.com series URL, listing all episodes' +
+    describe: 'Any chia-anime.com series URL, listing all episodes' +
       ' ex. http://www.chia-anime.me/episode/hunter-x-hunter-2011/',
     type: 'string'
   })
   .options('e', {
     alias: 'episode',
-    describe: 'Any chime-anime.com episode URL' +
+    describe: 'Any chia-anime.com episode URL' +
       ' ex. http://www.chia-anime.me/hunter-x-hunter-episode-1-english-subbed/',
     type: 'string'
   })
