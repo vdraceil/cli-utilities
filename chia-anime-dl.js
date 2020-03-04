@@ -60,10 +60,20 @@ async function getEpisodes (seriesURL) {
   let $ = cheerio.load(response)
 
   return $('#archive .post')
-    .map((index, element) => ({
-      name: $(element).find('h3').eq(0).text().trim(),
-      url: $(element).find('a[itemprop="url"]').eq(0).attr('href')
-    }))
+    .map((index, element) => {
+      let name = $(element).find('h3').first().text().trim()
+      let url = $(element).find('a[itemprop="url"]').first().attr('href')
+
+      // handle different type of Episodes (but sometimes with the same name)
+      if (/specials/.test(url)) {
+        name += '-Specials'
+      }
+      if (/ova/.test(url)) {
+        name += '-OVA'
+      }
+
+      return { name, url }
+    })
     .get()
     .reverse()
 }
